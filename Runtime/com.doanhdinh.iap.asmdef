@@ -3,7 +3,9 @@
     "rootNamespace": "DoanhDinh.IAP",
     "references": [
         "Unity.TextMeshPro",
-        "UnityEngine.Purchasing"
+        "UnityEngine.Purchasing",
+        "UnityEngine.Purchasing.Stores",
+        "UnityEngine.Purchasing.Codeless"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
