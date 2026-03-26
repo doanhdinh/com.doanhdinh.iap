@@ -1,0 +1,15 @@
+{
+  "name": "com.doanhdinh.iap",
+  "version": "1.0.0",
+  "displayName": "DoanhDinh IAP Manager",
+  "description": "Self-contained IAP manager with built-in coin wallet. Plug & play — add to any Unity project to enable in-app purchases with automatic coin crediting. Game project only needs to call SpendCoins/GetCoins.",
+  "unity": "2022.3",
+  "dependencies": {
+    "com.unity.purchasing": "4.12.2",
+    "com.unity.textmeshpro": "3.0.7"
+  },
+  "keywords": ["iap", "in-app purchase", "coin", "shop"],
+  "author": {
+    "name": "DoanhDinh"
+  }
+}
