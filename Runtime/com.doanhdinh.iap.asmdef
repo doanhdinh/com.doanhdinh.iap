@@ -1,0 +1,23 @@
+{
+    "name": "DoanhDinh.IAP",
+    "rootNamespace": "DoanhDinh.IAP",
+    "references": [
+        "Unity.TextMeshPro",
+        "Unity.Purchasing"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.purchasing",
+            "expression": "1.0.0",
+            "define": "IAP_ENABLED"
+        }
+    ],
+    "noEngineReferences": false
+}
