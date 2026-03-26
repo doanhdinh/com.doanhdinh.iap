@@ -27,7 +27,17 @@ namespace DoanhDinh.IAP.Editor
             "Value Pack", "Popular Pack", "Big Pack", "Mega Pack", "Ultimate Pack"
         };
 
-        private string _bundlePrefix = "com.company.gamename";
+        private const string DefaultCompany = "com.doanhdinh";
+        private string _bundlePrefix;
+
+        private void OnEnable()
+        {
+            // Auto-fill từ Product Name trong Player Settings
+            string productName = PlayerSettings.productName
+                .ToLower()
+                .Replace(" ", "");
+            _bundlePrefix = $"{DefaultCompany}.{productName}";
+        }
 
         public override void OnInspectorGUI()
         {
@@ -41,7 +51,7 @@ namespace DoanhDinh.IAP.Editor
             _bundlePrefix = EditorGUILayout.TextField("Bundle Prefix", _bundlePrefix);
 
             EditorGUILayout.HelpBox(
-                "Ví dụ: com.doanhdinh.smashdunk\n→ com.doanhdinh.smashdunk.pack012\n→ com.doanhdinh.smashdunk.pack020\n→ ...",
+                $"Product Name: \"{PlayerSettings.productName}\"\n→ {_bundlePrefix}.pack012 ... pack900",
                 MessageType.Info);
 
             GUI.backgroundColor = new Color(0.4f, 0.8f, 0.4f);
