@@ -6,17 +6,20 @@ using UnityEngine.Purchasing;
 
 namespace DoanhDinh.IAP
 {
-    // ─── Enums & Data ────────────────────────────────────────────────────────
+    // ─── Enums ───────────────────────────────────────────────────────────────
 
     public enum IAPItemType
     {
-        NONE      = 0,
-        Coin_150  = 1,
-        Coin_500  = 2,
-        Coin_1000 = 3,
-        Coin_2000 = 4,
-        Coin_4000 = 5,
-        Coin_8000 = 6
+        NONE     = 0,
+        Pack_012 = 1,  // $0.12
+        Pack_020 = 2,  // $0.20
+        Pack_050 = 3,  // $0.50
+        Pack_100 = 4,  // $1.00
+        Pack_150 = 5,  // $1.50
+        Pack_200 = 6,  // $2.00
+        Pack_500 = 7,  // $5.00
+        Pack_700 = 8,  // $7.00
+        Pack_900 = 9   // $9.00
     }
 
     public enum IAPState
@@ -25,35 +28,6 @@ namespace DoanhDinh.IAP
         IS_WAITING_INIT = 1,
         IS_FAILED       = 2,
         IS_INITED       = 3
-    }
-
-    [Serializable]
-    public class IAPConfigInfo
-    {
-        public IAPItemType itemType;
-        public string productId;
-        public int amount; // số coin tương ứng
-
-        public static string GetProductId(IAPItemType itemType, IAPConfigInfo[] configs)
-        {
-            foreach (var c in configs)
-                if (c.itemType == itemType) return c.productId;
-            return "";
-        }
-
-        public static IAPItemType GetItemType(string productId, IAPConfigInfo[] configs)
-        {
-            foreach (var c in configs)
-                if (c.productId.Equals(productId)) return c.itemType;
-            return IAPItemType.NONE;
-        }
-
-        public static int GetAmount(IAPItemType itemType, IAPConfigInfo[] configs)
-        {
-            foreach (var c in configs)
-                if (c.itemType == itemType) return c.amount;
-            return 0;
-        }
     }
 
     // ─── IAPManager ──────────────────────────────────────────────────────────
@@ -65,23 +39,10 @@ namespace DoanhDinh.IAP
         // ── Config ───────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Cấu hình product ID theo từng game.
-        /// Nếu để trống, dùng DefaultConfigs với product ID mặc định.
+        /// ScriptableObject chứa product IDs và 10 templates coin.
+        /// Tạo bằng: Right Click → Create → DoanhDinh → IAP Config
         /// </summary>
-        [SerializeField] private IAPConfigInfo[] configInfos;
-
-        private static readonly IAPConfigInfo[] DefaultConfigs = new IAPConfigInfo[]
-        {
-            new IAPConfigInfo { itemType = IAPItemType.Coin_150,  productId = "com.game.iap.coin150",  amount = 150  },
-            new IAPConfigInfo { itemType = IAPItemType.Coin_500,  productId = "com.game.iap.coin500",  amount = 500  },
-            new IAPConfigInfo { itemType = IAPItemType.Coin_1000, productId = "com.game.iap.coin1000", amount = 1000 },
-            new IAPConfigInfo { itemType = IAPItemType.Coin_2000, productId = "com.game.iap.coin2000", amount = 2000 },
-            new IAPConfigInfo { itemType = IAPItemType.Coin_4000, productId = "com.game.iap.coin4000", amount = 4000 },
-            new IAPConfigInfo { itemType = IAPItemType.Coin_8000, productId = "com.game.iap.coin8000", amount = 8000 },
-        };
-
-        private IAPConfigInfo[] ActiveConfigs =>
-            (configInfos != null && configInfos.Length > 0) ? configInfos : DefaultConfigs;
+        [SerializeField] private IapConfigInfo config;
 
         // ── State ─────────────────────────────────────────────────────────────
 
@@ -191,7 +152,7 @@ namespace DoanhDinh.IAP
         // ── Purchase ──────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Mua coin. Sau khi thành công coin tự động được cộng vào CurrencyManager.
+        /// Mua pack. Coin tự động cộng theo template đang chọn trong IapConfigInfo.
         /// </summary>
         public void Purchase(IAPItemType itemType, Action<bool> onComplete)
         {
@@ -207,7 +168,7 @@ namespace DoanhDinh.IAP
                 return;
             }
 
-            string productId = IAPConfigInfo.GetProductId(itemType, ActiveConfigs);
+            string productId = GetProductId(itemType);
             var product = m_Controller.products.WithID(productId);
             if (product == null)
             {
@@ -224,13 +185,14 @@ namespace DoanhDinh.IAP
         public PurchaseProcessingResult ProcessPurchase(PurchaseEventArgs e)
         {
             var product = e.purchasedProduct;
-            var itemType = IAPConfigInfo.GetItemType(product.definition.id, ActiveConfigs);
-            int coinAmount = IAPConfigInfo.GetAmount(itemType, ActiveConfigs);
+            var itemType = GetItemType(product.definition.id);
+            int coinAmount = GetCoinAmount(itemType);
 
             if (coinAmount > 0 && CurrencyManager.Instance != null)
                 CurrencyManager.Instance.AddCoins(coinAmount);
 
-            Debug.Log($"[IAPManager] Mua thành công: {product.definition.id} → +{coinAmount} coins");
+            int templateIndex = config != null ? config.activeTemplate : -1;
+            Debug.Log($"[IAPManager] Mua thành công: {product.definition.id} | Template {templateIndex} → +{coinAmount} coins");
 
             IsPurchaseInProgress = false;
             m_PendingPurchaseCallback?.Invoke(true);
@@ -249,7 +211,7 @@ namespace DoanhDinh.IAP
 
         // ── Price Helpers ─────────────────────────────────────────────────────
 
-        /// <summary>Lấy giá string (vd: "$1.99"). Dùng callback vì phải chờ init.</summary>
+        /// <summary>Lấy giá string từ store (vd: "$0.99"). Dùng callback vì phải chờ init.</summary>
         public void GetPrice(IAPItemType itemType, UnityAction<string> callback)
         {
             StartCoroutine(FetchPrice(itemType, callback));
@@ -258,7 +220,7 @@ namespace DoanhDinh.IAP
         private IEnumerator FetchPrice(IAPItemType itemType, UnityAction<string> callback)
         {
             yield return new WaitUntil(() => IsInitialized);
-            string productId = IAPConfigInfo.GetProductId(itemType, ActiveConfigs);
+            string productId = GetProductId(itemType);
             var product = m_Controller.products.WithID(productId);
             callback?.Invoke(product?.metadata?.localizedPriceString ?? "---");
         }
@@ -266,8 +228,7 @@ namespace DoanhDinh.IAP
         public float GetPriceNumber(IAPItemType itemType)
         {
             if (!IsInitialized) return -1f;
-            string productId = IAPConfigInfo.GetProductId(itemType, ActiveConfigs);
-            var product = m_Controller.products.WithID(productId);
+            var product = m_Controller.products.WithID(GetProductId(itemType));
             return product != null ? (float)product.metadata.localizedPrice : -1f;
         }
 
@@ -291,9 +252,22 @@ namespace DoanhDinh.IAP
         // ── Utils ─────────────────────────────────────────────────────────────
 
         public string GetProductId(IAPItemType itemType) =>
-            IAPConfigInfo.GetProductId(itemType, ActiveConfigs);
+            config != null ? config.GetProductId(itemType) : "";
+
+        public IAPItemType GetItemType(string productId) =>
+            config != null ? config.GetItemType(productId) : IAPItemType.NONE;
 
         public int GetCoinAmount(IAPItemType itemType) =>
-            IAPConfigInfo.GetAmount(itemType, ActiveConfigs);
+            config != null ? config.GetCoinAmount(itemType) : 0;
+
+        /// <summary>Đổi template đang dùng lúc runtime (0-9).</summary>
+        public void SetTemplate(int index)
+        {
+            if (config == null) return;
+            config.activeTemplate = Mathf.Clamp(index, 0, config.templates.Length - 1);
+            Debug.Log($"[IAPManager] Đổi sang Template {config.activeTemplate}: {config.templates[config.activeTemplate].templateName}");
+        }
+
+        public int GetActiveTemplate() => config != null ? config.activeTemplate : -1;
     }
 }
