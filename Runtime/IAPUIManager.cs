@@ -6,24 +6,25 @@ namespace DoanhDinh.IAP
 {
     /// <summary>
     /// Quản lý UI shop: tự spawn đủ 9 pack button và hiển thị số coin.
-    /// Kéo ShopUI prefab vào scene là chạy ngay, không cần setup thêm.
+    /// Kéo ShopUI prefab vào scene là chạy ngay — không cần setup thêm.
+    /// ShopPack Single prefab được load tự động từ Resources.
     /// </summary>
     public class IAPUIManager : MonoBehaviour
     {
+        private const string PACK_PREFAB_PATH = "ShopPack Single";
+
         [Header("References")]
         public IAPManager iapManager;
 
-        [Header("Pack Spawn")]
-        [Tooltip("Prefab ShopPack Single — có sẵn ShopPackUI component")]
-        public ShopPackUI packPrefab;
-        [Tooltip("Container để spawn các pack vào (ScrollView Content hoặc Layout Group)")]
+        [Header("Pack Container")]
+        [Tooltip("Layout Group chứa các pack (kéo Content / Bg vào)")]
         public Transform packContainer;
 
         [Header("Coin Balance Display")]
         public TextMeshProUGUI tmpBalance;
         public Text txtBalance;
 
-        private static readonly IAPItemType[] AllPacks = new[]
+        private static readonly IAPItemType[] AllPacks =
         {
             IAPItemType.Pack_012,
             IAPItemType.Pack_020,
@@ -55,7 +56,18 @@ namespace DoanhDinh.IAP
 
         private void SpawnPacks()
         {
-            if (packPrefab == null || packContainer == null) return;
+            if (packContainer == null)
+            {
+                Debug.LogWarning("[IAPUIManager] Pack Container chưa được assign.");
+                return;
+            }
+
+            var packPrefab = Resources.Load<ShopPackUI>(PACK_PREFAB_PATH);
+            if (packPrefab == null)
+            {
+                Debug.LogError($"[IAPUIManager] Không tìm thấy prefab '{PACK_PREFAB_PATH}' trong Resources.");
+                return;
+            }
 
             foreach (var itemType in AllPacks)
             {
