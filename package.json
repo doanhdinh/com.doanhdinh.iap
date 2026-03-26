@@ -11,5 +11,12 @@
   "keywords": ["iap", "in-app purchase", "coin", "shop"],
   "author": {
     "name": "DoanhDinh"
-  }
+  },
+  "samples": [
+    {
+      "displayName": "Shop UI",
+      "description": "ShopUI prefab, IapConfigInfo asset và sprites. Kéo ShopUI lên scene là chạy.",
+      "path": "Samples~/ShopUI"
+    }
+  ]
 }
