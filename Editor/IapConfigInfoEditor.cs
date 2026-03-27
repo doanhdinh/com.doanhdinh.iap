@@ -38,6 +38,7 @@ namespace DoanhDinh.IAP.Editor
         // ── State ─────────────────────────────────────────────────────────────
 
         private string _bundlePrefix;
+        private string _packageName;
         private string _serviceAccountPath = "";
         private bool   _isCreatingProducts;
 
@@ -49,6 +50,7 @@ namespace DoanhDinh.IAP.Editor
                 .ToLower()
                 .Replace(" ", "");
             _bundlePrefix = $"{DefaultCompany}.{productName}";
+            _packageName  = PlayerSettings.applicationIdentifier;
         }
 
         // ── Inspector GUI ─────────────────────────────────────────────────────
@@ -75,6 +77,8 @@ namespace DoanhDinh.IAP.Editor
             EditorGUILayout.Space(12);
             EditorGUILayout.LabelField("Google Play Store", EditorStyles.boldLabel);
 
+            _packageName = EditorGUILayout.TextField("Package Name", _packageName);
+
             // Service account file picker
             EditorGUILayout.BeginHorizontal();
             _serviceAccountPath = EditorGUILayout.TextField("Service Account JSON", _serviceAccountPath);
@@ -88,7 +92,8 @@ namespace DoanhDinh.IAP.Editor
 
             bool hasFile    = File.Exists(_serviceAccountPath);
             bool hasPrefix  = !string.IsNullOrEmpty(_bundlePrefix);
-            bool canCreate  = hasFile && hasPrefix && !_isCreatingProducts;
+            bool hasPackage = !string.IsNullOrEmpty(_packageName);
+            bool canCreate  = hasFile && hasPrefix && hasPackage && !_isCreatingProducts;
 
             if (!hasFile)
                 EditorGUILayout.HelpBox("Chọn file Service Account JSON từ Google Play Console.", MessageType.Warning);
@@ -165,7 +170,7 @@ namespace DoanhDinh.IAP.Editor
                 var sa = LoadServiceAccount(_serviceAccountPath);
                 if (sa == null) return;
 
-                string packageName = PlayerSettings.applicationIdentifier;
+                string packageName = _packageName;
                 Debug.Log($"[GooglePlay] Package: {packageName}");
 
                 EditorUtility.DisplayProgressBar("Google Play", "Lấy access token...", 0.1f);
