@@ -398,83 +398,49 @@ namespace DoanhDinh.IAP.Editor
         {
             string json = BuildProductJson(packageName, productId, title, priceMicros);
 
-            // Try new onetimeproducts PATCH first
-            string updateMask = Uri.EscapeDataString("listings,purchaseOptions,taxAndComplianceSettings");
-            string patchUrl = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/monetization/onetimeproducts/{productId}" +
-                              $"?allowMissing=true&updateMask={updateMask}&regionsVersion.version=2022%2F02";
-
-            using (var req = new UnityWebRequest(patchUrl, "PATCH"))
+            // Try PATCH on existing product first (update)
+            string patchUrl = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/inappproducts/{productId}?autoConvertMissingPrices=true";
+            using (var patch = new UnityWebRequest(patchUrl, "PATCH"))
             {
-                req.uploadHandler   = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
-                req.downloadHandler = new DownloadHandlerBuffer();
-                req.SetRequestHeader("Content-Type", "application/json");
-                req.SetRequestHeader("Authorization", $"Bearer {token}");
-                var op = req.SendWebRequest();
+                patch.uploadHandler   = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+                patch.downloadHandler = new DownloadHandlerBuffer();
+                patch.SetRequestHeader("Content-Type", "application/json");
+                patch.SetRequestHeader("Authorization", $"Bearer {token}");
+                var op = patch.SendWebRequest();
                 while (!op.isDone) await Task.Yield();
-                if (req.result == UnityWebRequest.Result.Success) return true;
-                if (req.responseCode != 404)
+                if (patch.result == UnityWebRequest.Result.Success) return true;
+
+                // Product doesn't exist yet → need manual creation
+                if (patch.responseCode == 404)
                 {
-                    Debug.LogError($"[GooglePlay] onetimeproducts PATCH {productId}: {req.error}\n{req.downloadHandler.text}");
+                    Debug.LogWarning($"[GooglePlay] ⚠ {productId} chưa tồn tại.\n" +
+                        $"→ Tạo thủ công tại: Play Console → Monetize → Products → In-app products → Create product\n" +
+                        $"→ Product ID: {productId}");
                     return false;
                 }
-                Debug.LogWarning($"[GooglePlay] onetimeproducts endpoint not found (404), falling back to batchUpdate...");
-            }
 
-            // Fallback: batchUpdate endpoint
-            string batchUrl = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/monetization/onetimeproducts:batchUpdate";
-            string batchJson = $"{{\"requests\":[{{\"updateMask\":\"{Uri.EscapeDataString("listings,purchaseOptions,taxAndComplianceSettings")}\",\"allowMissing\":true,\"onetimeproduct\":{json}}}]}}";
-
-            using (var req2 = new UnityWebRequest(batchUrl, "POST"))
-            {
-                req2.uploadHandler   = new UploadHandlerRaw(Encoding.UTF8.GetBytes(batchJson));
-                req2.downloadHandler = new DownloadHandlerBuffer();
-                req2.SetRequestHeader("Content-Type", "application/json");
-                req2.SetRequestHeader("Authorization", $"Bearer {token}");
-                var op2 = req2.SendWebRequest();
-                while (!op2.isDone) await Task.Yield();
-                if (req2.result == UnityWebRequest.Result.Success) return true;
-                Debug.LogError($"[GooglePlay] batchUpdate {productId}: {req2.error}\n{req2.downloadHandler.text}");
+                Debug.LogError($"[GooglePlay] PATCH {productId}: {patch.error}\n{patch.downloadHandler.text}");
                 return false;
             }
         }
 
         private static string BuildProductJson(string packageName, string productId, string title, long priceMicros)
         {
-            long units = priceMicros / 1_000_000;
-            long nanos = (priceMicros % 1_000_000) * 1_000;
-
             return $@"{{
   ""packageName"": ""{packageName}"",
-  ""productId"": ""{productId}"",
-  ""listings"": [
-    {{
-      ""languageCode"": ""en-US"",
+  ""sku"": ""{productId}"",
+  ""status"": ""active"",
+  ""purchaseType"": ""managedUser"",
+  ""defaultLanguage"": ""en-US"",
+  ""defaultPrice"": {{
+    ""currency"": ""USD"",
+    ""priceMicros"": ""{priceMicros}""
+  }},
+  ""listings"": {{
+    ""en-US"": {{
       ""title"": ""{title}"",
       ""description"": ""Buy coins""
     }}
-  ],
-  ""purchaseOptions"": [
-    {{
-      ""purchaseOptionId"": ""default-purchase-option"",
-      ""state"": ""ACTIVE"",
-      ""buyOption"": {{
-        ""legacyCompatible"": true
-      }},
-      ""regionalPricingAndAvailabilityConfigs"": [
-        {{
-          ""regionCode"": ""US"",
-          ""price"": {{
-            ""currencyCode"": ""USD"",
-            ""units"": ""{units}"",
-            ""nanos"": {nanos}
-          }},
-          ""availability"": ""AVAILABLE""
-        }}
-      ]
-    }}
-  ],
-  ""taxAndComplianceSettings"": {{
-    ""isTokenizedDigitalAsset"": false
   }}
 }}";
         }
