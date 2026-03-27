@@ -109,7 +109,7 @@ namespace DoanhDinh.IAP
             {
                 if (product.allStoreIDs.Count > 0)
                 {
-                    var ids = new IDs();
+                    var ids = new StoreSpecificIds();
                     foreach (var storeID in product.allStoreIDs)
                         ids.Add(storeID.id, storeID.store);
                     builder.AddProduct(product.id, product.type, ids);
@@ -241,9 +241,9 @@ namespace DoanhDinh.IAP
                 Application.platform == RuntimePlatform.OSXPlayer)
             {
                 var apple = m_StoreExtensionProvider.GetExtension<IAppleExtensions>();
-                apple.RestoreTransactions(result =>
+                apple.RestoreTransactions((result, error) =>
                 {
-                    Debug.Log($"[IAPManager] Restore: {result}");
+                    Debug.Log($"[IAPManager] Restore: {result}" + (error != null ? $" — {error}" : ""));
                     onComplete?.Invoke();
                 });
             }
