@@ -396,11 +396,13 @@ namespace DoanhDinh.IAP.Editor
         private static async Task<bool> CreateOrUpdateProductAsync(
             string token, string packageName, string productId, string title, long priceMicros)
         {
-            // PUT (inappproducts.update) creates if not exists, updates if exists
-            string url  = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/inappproducts/{productId}?autoConvertMissingPrices=true";
+            // New monetization.onetimeproducts API (replaces deprecated inappproducts)
+            string updateMask = Uri.EscapeDataString("listings,purchaseOptions,taxAndComplianceSettings");
+            string url = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/monetization/onetimeproducts/{productId}" +
+                         $"?allowMissing=true&updateMask={updateMask}&regionsVersion.version=2022%2F02";
             string json = BuildProductJson(packageName, productId, title, priceMicros);
 
-            using var req = new UnityWebRequest(url, "PUT");
+            using var req = new UnityWebRequest(url, "PATCH");
             req.uploadHandler   = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
             req.downloadHandler = new DownloadHandlerBuffer();
             req.SetRequestHeader("Content-Type", "application/json");
@@ -411,27 +413,47 @@ namespace DoanhDinh.IAP.Editor
 
             if (req.result == UnityWebRequest.Result.Success) return true;
 
-            Debug.LogError($"[GooglePlay] PUT {productId}: {req.error}\n{req.downloadHandler.text}");
+            Debug.LogError($"[GooglePlay] {productId}: {req.error}\n{req.downloadHandler.text}");
             return false;
         }
 
         private static string BuildProductJson(string packageName, string productId, string title, long priceMicros)
         {
+            long units = priceMicros / 1_000_000;
+            long nanos = (priceMicros % 1_000_000) * 1_000;
+
             return $@"{{
   ""packageName"": ""{packageName}"",
-  ""sku"": ""{productId}"",
-  ""status"": ""active"",
-  ""purchaseType"": ""managedUser"",
-  ""defaultLanguage"": ""en-US"",
-  ""defaultPrice"": {{
-    ""currency"": ""USD"",
-    ""priceMicros"": ""{priceMicros}""
-  }},
-  ""listings"": {{
-    ""en-US"": {{
+  ""productId"": ""{productId}"",
+  ""listings"": [
+    {{
+      ""languageCode"": ""en-US"",
       ""title"": ""{title}"",
       ""description"": ""Buy coins""
     }}
+  ],
+  ""purchaseOptions"": [
+    {{
+      ""purchaseOptionId"": ""default-purchase-option"",
+      ""state"": ""ACTIVE"",
+      ""buyOption"": {{
+        ""legacyCompatible"": true
+      }},
+      ""regionalPricingAndAvailabilityConfigs"": [
+        {{
+          ""regionCode"": ""US"",
+          ""price"": {{
+            ""currencyCode"": ""USD"",
+            ""units"": ""{units}"",
+            ""nanos"": {nanos}
+          }},
+          ""availability"": ""AVAILABLE""
+        }}
+      ]
+    }}
+  ],
+  ""taxAndComplianceSettings"": {{
+    ""isTokenizedDigitalAsset"": false
   }}
 }}";
         }
