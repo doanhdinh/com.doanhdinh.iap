@@ -315,6 +315,7 @@ namespace DoanhDinh.IAP.Editor
             using (var ms = new MemoryStream(der))
             {
                 ReadAsnTag(ms, 0x30); ReadAsnLength(ms);  // outer SEQUENCE
+                ReadAsnInteger(ms);                        // version INTEGER (skip)
                 ReadAsnTag(ms, 0x30);                      // algorithm SEQUENCE
                 ms.Seek(ReadAsnLength(ms), SeekOrigin.Current); // skip algorithm body
                 ReadAsnTag(ms, 0x04);                      // OCTET STRING
