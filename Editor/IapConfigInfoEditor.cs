@@ -289,6 +289,7 @@ namespace DoanhDinh.IAP.Editor
 
         private static byte[] SignRS256(byte[] data, string pem)
         {
+            bool isPkcs8 = pem.Contains("BEGIN PRIVATE KEY");
             string key = pem
                 .Replace("-----BEGIN RSA PRIVATE KEY-----", "")
                 .Replace("-----END RSA PRIVATE KEY-----", "")
@@ -297,12 +298,83 @@ namespace DoanhDinh.IAP.Editor
                 .Replace("\n", "").Replace("\r", "").Trim();
 
             byte[] keyBytes = Convert.FromBase64String(key);
+            RSAParameters rsaParams = isPkcs8 ? DecodePkcs8(keyBytes) : DecodePkcs1(keyBytes);
 
-            using var rsa = RSA.Create();
-            try   { rsa.ImportPkcs8PrivateKey(keyBytes, out _); }
-            catch { rsa.ImportRSAPrivateKey(keyBytes, out _); }
+            using (var rsa = new System.Security.Cryptography.RSACryptoServiceProvider())
+            {
+                rsa.PersistKeyInCsp = false;
+                rsa.ImportParameters(rsaParams);
+                byte[] hash = System.Security.Cryptography.SHA256.Create().ComputeHash(data);
+                return rsa.SignHash(hash, System.Security.Cryptography.CryptoConfig.MapNameToOID("SHA256"));
+            }
+        }
 
-            return rsa.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        // Strip PKCS#8 wrapper and return inner PKCS#1 key parameters
+        private static RSAParameters DecodePkcs8(byte[] der)
+        {
+            using (var ms = new MemoryStream(der))
+            {
+                ReadAsnTag(ms, 0x30); ReadAsnLength(ms);  // outer SEQUENCE
+                ReadAsnTag(ms, 0x30);                      // algorithm SEQUENCE
+                ms.Seek(ReadAsnLength(ms), SeekOrigin.Current); // skip algorithm body
+                ReadAsnTag(ms, 0x04);                      // OCTET STRING
+                int len = ReadAsnLength(ms);
+                byte[] pkcs1 = new byte[len];
+                ms.Read(pkcs1, 0, len);
+                return DecodePkcs1(pkcs1);
+            }
+        }
+
+        private static RSAParameters DecodePkcs1(byte[] der)
+        {
+            using (var ms = new MemoryStream(der))
+            {
+                ReadAsnTag(ms, 0x30); ReadAsnLength(ms); // SEQUENCE
+                ReadAsnInteger(ms);                       // version (skip)
+                return new RSAParameters
+                {
+                    Modulus  = ReadAsnInteger(ms),
+                    Exponent = ReadAsnInteger(ms),
+                    D        = ReadAsnInteger(ms),
+                    P        = ReadAsnInteger(ms),
+                    Q        = ReadAsnInteger(ms),
+                    DP       = ReadAsnInteger(ms),
+                    DQ       = ReadAsnInteger(ms),
+                    InverseQ = ReadAsnInteger(ms),
+                };
+            }
+        }
+
+        private static void ReadAsnTag(MemoryStream ms, byte expected)
+        {
+            int b = ms.ReadByte();
+            if (b != expected) throw new Exception($"ASN.1: expected tag 0x{expected:X2}, got 0x{b:X2}");
+        }
+
+        private static int ReadAsnLength(MemoryStream ms)
+        {
+            int b = ms.ReadByte();
+            if (b < 0x80) return b;
+            int count = b & 0x7f;
+            int len = 0;
+            for (int i = 0; i < count; i++) len = (len << 8) | ms.ReadByte();
+            return len;
+        }
+
+        private static byte[] ReadAsnInteger(MemoryStream ms)
+        {
+            ReadAsnTag(ms, 0x02);
+            int len = ReadAsnLength(ms);
+            byte[] raw = new byte[len];
+            ms.Read(raw, 0, len);
+            // Strip leading 0x00 padding byte (DER uses it when high bit is set)
+            if (raw.Length > 1 && raw[0] == 0x00)
+            {
+                byte[] trimmed = new byte[raw.Length - 1];
+                Array.Copy(raw, 1, trimmed, 0, trimmed.Length);
+                return trimmed;
+            }
+            return raw;
         }
 
         private static string Base64Url(byte[] input)
