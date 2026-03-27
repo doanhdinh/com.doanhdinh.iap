@@ -396,11 +396,12 @@ namespace DoanhDinh.IAP.Editor
         private static async Task<bool> CreateOrUpdateProductAsync(
             string token, string packageName, string productId, string title, long priceMicros)
         {
-            string url  = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/inappproducts";
+            // New monetization API: PATCH with allowMissing=true creates or updates in one call
+            string updateMask = Uri.EscapeDataString("listings,defaultLanguage,defaultPrice,status,purchaseType");
+            string url  = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/monetization/inappproducts/{productId}?allowMissing=true&updateMask={updateMask}";
             string json = BuildProductJson(packageName, productId, title, priceMicros);
 
-            // Thử INSERT trước
-            using var req = new UnityWebRequest(url, "POST");
+            using var req = new UnityWebRequest(url, "PATCH");
             req.uploadHandler   = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
             req.downloadHandler = new DownloadHandlerBuffer();
             req.SetRequestHeader("Content-Type", "application/json");
@@ -411,25 +412,7 @@ namespace DoanhDinh.IAP.Editor
 
             if (req.result == UnityWebRequest.Result.Success) return true;
 
-            // 409 = đã tồn tại → PATCH để update
-            if (req.responseCode == 409)
-            {
-                string patchUrl = $"{url}/{productId}";
-                using var patch = new UnityWebRequest(patchUrl, "PATCH");
-                patch.uploadHandler   = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
-                patch.downloadHandler = new DownloadHandlerBuffer();
-                patch.SetRequestHeader("Content-Type", "application/json");
-                patch.SetRequestHeader("Authorization", $"Bearer {token}");
-
-                var patchOp = patch.SendWebRequest();
-                while (!patchOp.isDone) await Task.Yield();
-
-                if (patch.result == UnityWebRequest.Result.Success) return true;
-                Debug.LogError($"[GooglePlay] PATCH {productId}: {patch.error}\n{patch.downloadHandler.text}");
-                return false;
-            }
-
-            Debug.LogError($"[GooglePlay] POST {productId}: {req.error}\n{req.downloadHandler.text}");
+            Debug.LogError($"[GooglePlay] PATCH {productId}: {req.error}\n{req.downloadHandler.text}");
             return false;
         }
 
@@ -437,7 +420,7 @@ namespace DoanhDinh.IAP.Editor
         {
             return $@"{{
   ""packageName"": ""{packageName}"",
-  ""sku"": ""{productId}"",
+  ""productId"": ""{productId}"",
   ""status"": ""active"",
   ""purchaseType"": ""managedUser"",
   ""defaultLanguage"": ""en-US"",
