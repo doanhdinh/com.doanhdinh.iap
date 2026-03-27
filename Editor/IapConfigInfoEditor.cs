@@ -396,9 +396,8 @@ namespace DoanhDinh.IAP.Editor
         private static async Task<bool> CreateOrUpdateProductAsync(
             string token, string packageName, string productId, string title, long priceMicros)
         {
-            // New monetization API: PATCH with allowMissing=true creates or updates in one call
-            string updateMask = Uri.EscapeDataString("listings,defaultLanguage,defaultPrice,status,purchaseType");
-            string url  = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/monetization/inappproducts/{productId}?allowMissing=true&updateMask={updateMask}";
+            // PATCH with allowMissing=true creates or updates in one call
+            string url  = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/inappproducts/{productId}?allowMissing=true&autoConvertMissingPrices=true";
             string json = BuildProductJson(packageName, productId, title, priceMicros);
 
             using var req = new UnityWebRequest(url, "PATCH");
@@ -420,7 +419,7 @@ namespace DoanhDinh.IAP.Editor
         {
             return $@"{{
   ""packageName"": ""{packageName}"",
-  ""productId"": ""{productId}"",
+  ""sku"": ""{productId}"",
   ""status"": ""active"",
   ""purchaseType"": ""managedUser"",
   ""defaultLanguage"": ""en-US"",
