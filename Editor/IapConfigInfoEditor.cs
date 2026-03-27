@@ -396,11 +396,11 @@ namespace DoanhDinh.IAP.Editor
         private static async Task<bool> CreateOrUpdateProductAsync(
             string token, string packageName, string productId, string title, long priceMicros)
         {
-            // PATCH with allowMissing=true creates or updates in one call
-            string url  = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/inappproducts/{productId}?allowMissing=true&autoConvertMissingPrices=true";
+            // PUT (inappproducts.update) creates if not exists, updates if exists
+            string url  = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/inappproducts/{productId}?autoConvertMissingPrices=true";
             string json = BuildProductJson(packageName, productId, title, priceMicros);
 
-            using var req = new UnityWebRequest(url, "PATCH");
+            using var req = new UnityWebRequest(url, "PUT");
             req.uploadHandler   = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
             req.downloadHandler = new DownloadHandlerBuffer();
             req.SetRequestHeader("Content-Type", "application/json");
@@ -411,7 +411,7 @@ namespace DoanhDinh.IAP.Editor
 
             if (req.result == UnityWebRequest.Result.Success) return true;
 
-            Debug.LogError($"[GooglePlay] PATCH {productId}: {req.error}\n{req.downloadHandler.text}");
+            Debug.LogError($"[GooglePlay] PUT {productId}: {req.error}\n{req.downloadHandler.text}");
             return false;
         }
 
