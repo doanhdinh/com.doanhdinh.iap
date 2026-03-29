@@ -176,7 +176,15 @@ namespace DoanhDinh.IAP
                 onComplete?.Invoke(false);
                 return;
             }
+            if (!product.availableToPurchase)
+            {
+                Debug.LogWarning($"[IAPManager] Sản phẩm chưa available trên store: {productId}\n" +
+                    "→ Kiểm tra: sản phẩm đã active trên Play Console, tài khoản đã là tester của app chưa?");
+                onComplete?.Invoke(false);
+                return;
+            }
 
+            Debug.Log($"[IAPManager] Bắt đầu mua: {productId}");
             IsPurchaseInProgress = true;
             m_PendingPurchaseCallback = onComplete;
             m_Controller.InitiatePurchase(product);

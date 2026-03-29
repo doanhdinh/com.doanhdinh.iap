@@ -26,6 +26,15 @@ namespace DoanhDinh.IAP
         private void Start()
         {
             AutoFindReferences();
+
+            // Wire button click in code — đảm bảo hoạt động kể cả khi prefab mất Inspector connection
+            var btn = GetComponentInChildren<Button>();
+            if (btn != null)
+            {
+                btn.onClick.RemoveListener(OnBuyClicked);
+                btn.onClick.AddListener(OnBuyClicked);
+            }
+
             StartCoroutine(LoadData());
         }
 
