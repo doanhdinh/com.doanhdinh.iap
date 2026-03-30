@@ -179,8 +179,16 @@ namespace DoanhDinh.IAP.Editor
 
             for (int i = 0; i < Suffixes.Length; i++)
             {
-                sb.AppendLine($"Product Name: {PlayerSettings.productName} {Titles[i]}");
-                sb.AppendLine($"Product ID:   {prefix}.{Suffixes[i]}");
+                string productId       = $"{prefix}.{Suffixes[i]}";
+                string name            = $"{PlayerSettings.productName} {Titles[i]}";
+                string description     = $"{Titles[i]} for {PlayerSettings.productName}";
+                string purchaseOptId   = $"{Suffixes[i]}-buy";
+
+                sb.AppendLine($"--- Pack {i + 1} ---");
+                sb.AppendLine($"Product ID *:          {productId}");
+                sb.AppendLine($"Name *:                {name}");
+                sb.AppendLine($"Description *:         {description}");
+                sb.AppendLine($"Purchase option ID *:  {purchaseOptId}");
                 sb.AppendLine();
             }
 
