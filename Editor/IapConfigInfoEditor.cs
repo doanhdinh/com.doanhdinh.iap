@@ -41,6 +41,7 @@ namespace DoanhDinh.IAP.Editor
         private string _packageName;
         private string _serviceAccountPath = "";
         private bool   _isCreatingProducts;
+        private bool   _showGooglePlay;
 
         // ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -73,37 +74,44 @@ namespace DoanhDinh.IAP.Editor
                 ApplyBundlePrefix(_bundlePrefix.TrimEnd('.'));
             GUI.backgroundColor = Color.white;
 
-            // ── Section: Google Play ───────────────────────────────────────────
-            EditorGUILayout.Space(12);
-            EditorGUILayout.LabelField("Google Play Store", EditorStyles.boldLabel);
-
-            _packageName = EditorGUILayout.TextField("Package Name", _packageName);
-
-            // Service account file picker
-            EditorGUILayout.BeginHorizontal();
-            _serviceAccountPath = EditorGUILayout.TextField("Service Account JSON", _serviceAccountPath);
-            if (GUILayout.Button("Browse", GUILayout.Width(60)))
-            {
-                string path = EditorUtility.OpenFilePanel("Select Service Account JSON", Application.dataPath, "json");
-                if (!string.IsNullOrEmpty(path))
-                    _serviceAccountPath = path;
-            }
-            EditorGUILayout.EndHorizontal();
-
-            bool hasFile    = File.Exists(_serviceAccountPath);
-            bool hasPrefix  = !string.IsNullOrEmpty(_bundlePrefix);
-            bool hasPackage = !string.IsNullOrEmpty(_packageName);
-            bool canCreate  = hasFile && hasPrefix && hasPackage && !_isCreatingProducts;
-
-            if (!hasFile)
-                EditorGUILayout.HelpBox("Chọn file Service Account JSON từ Google Play Console.", MessageType.Warning);
-
-            GUI.enabled = canCreate;
-            GUI.backgroundColor = new Color(0.3f, 0.6f, 1f);
-            if (GUILayout.Button(_isCreatingProducts ? "Đang tạo sản phẩm..." : "Create Products on Google Play", GUILayout.Height(36)))
-                _ = CreateProductsAsync();
+            GUI.backgroundColor = new Color(0.9f, 0.7f, 0.2f);
+            if (GUILayout.Button("Export Product IDs (TXT)", GUILayout.Height(28)))
+                ExportProductIdsTxt(_bundlePrefix.TrimEnd('.'));
             GUI.backgroundColor = Color.white;
-            GUI.enabled = true;
+
+            // ── Section: Google Play (collapsible) ────────────────────────────
+            EditorGUILayout.Space(12);
+            _showGooglePlay = EditorGUILayout.Foldout(_showGooglePlay, "Google Play Store", true, EditorStyles.foldoutHeader);
+            if (_showGooglePlay)
+            {
+                EditorGUILayout.Space(4);
+                _packageName = EditorGUILayout.TextField("Package Name", _packageName);
+
+                EditorGUILayout.BeginHorizontal();
+                _serviceAccountPath = EditorGUILayout.TextField("Service Account JSON", _serviceAccountPath);
+                if (GUILayout.Button("Browse", GUILayout.Width(60)))
+                {
+                    string path = EditorUtility.OpenFilePanel("Select Service Account JSON", Application.dataPath, "json");
+                    if (!string.IsNullOrEmpty(path))
+                        _serviceAccountPath = path;
+                }
+                EditorGUILayout.EndHorizontal();
+
+                bool hasFile    = File.Exists(_serviceAccountPath);
+                bool hasPrefix  = !string.IsNullOrEmpty(_bundlePrefix);
+                bool hasPackage = !string.IsNullOrEmpty(_packageName);
+                bool canCreate  = hasFile && hasPrefix && hasPackage && !_isCreatingProducts;
+
+                if (!hasFile)
+                    EditorGUILayout.HelpBox("Chọn file Service Account JSON từ Google Play Console.", MessageType.Warning);
+
+                GUI.enabled = canCreate;
+                GUI.backgroundColor = new Color(0.3f, 0.6f, 1f);
+                if (GUILayout.Button(_isCreatingProducts ? "Đang tạo sản phẩm..." : "Create Products on Google Play", GUILayout.Height(36)))
+                    _ = CreateProductsAsync();
+                GUI.backgroundColor = Color.white;
+                GUI.enabled = true;
+            }
         }
 
         // ── Product ID Generation ─────────────────────────────────────────────
@@ -156,6 +164,29 @@ namespace DoanhDinh.IAP.Editor
             sb.Append("]}");
             File.WriteAllText(catalogPath, sb.ToString());
             AssetDatabase.Refresh();
+        }
+
+        private void ExportProductIdsTxt(string prefix)
+        {
+            string savePath = EditorUtility.SaveFilePanel(
+                "Export Product IDs", Application.dataPath, "ProductIDs", "txt");
+            if (string.IsNullOrEmpty(savePath)) return;
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"# Product IDs — {PlayerSettings.productName}");
+            sb.AppendLine($"# Generated: {DateTime.Now:yyyy-MM-dd}");
+            sb.AppendLine();
+
+            for (int i = 0; i < Suffixes.Length; i++)
+            {
+                sb.AppendLine($"Product Name: {PlayerSettings.productName} {Titles[i]}");
+                sb.AppendLine($"Product ID:   {prefix}.{Suffixes[i]}");
+                sb.AppendLine();
+            }
+
+            File.WriteAllText(savePath, sb.ToString(), Encoding.UTF8);
+            Debug.Log($"[IapConfigInfo] Exported {Suffixes.Length} product IDs to {savePath}");
+            EditorUtility.RevealInFinder(savePath);
         }
 
         // ── Google Play API ───────────────────────────────────────────────────
