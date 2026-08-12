@@ -1,7 +1,9 @@
 using System;
 using System.Collections;
+using System.Text;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.Networking;
 using UnityEngine.Purchasing;
 
 namespace DoanhDinh.IAP
@@ -35,6 +37,12 @@ namespace DoanhDinh.IAP
     public class IAPManager : MonoBehaviour, IStoreListener
     {
         public static IAPManager Instance { get; private set; }
+
+        // ── Revenue reporting ────────────────────────────────────────────────
+        // Store Manager endpoint that records this purchase for the IAP Revenue
+        // dashboard. Best-effort / fire-and-forget: a failed report never blocks
+        // or rolls back the purchase itself, coins are already granted locally.
+        private const string REPORT_ENDPOINT = "https://api-ig55zj344q-uc.a.run.app/iap-report";
 
         // ── Config ───────────────────────────────────────────────────────────
 
@@ -202,11 +210,72 @@ namespace DoanhDinh.IAP
             int templateIndex = config != null ? config.activeTemplate : -1;
             Debug.Log($"[IAPManager] Mua thành công: {product.definition.id} | Template {templateIndex} → +{coinAmount} coins");
 
+            StartCoroutine(ReportPurchase(product));
+
             IsPurchaseInProgress = false;
             m_PendingPurchaseCallback?.Invoke(true);
             m_PendingPurchaseCallback = null;
 
             return PurchaseProcessingResult.Complete;
+        }
+
+        // ── Revenue reporting ────────────────────────────────────────────────
+
+        /// <summary>
+        /// Báo giao dịch mua thành công về Store Manager để tổng hợp doanh thu IAP.
+        /// Không chặn / không ảnh hưởng luồng mua hàng nếu request lỗi hoặc mất mạng.
+        /// </summary>
+        private IEnumerator ReportPurchase(Product product)
+        {
+            string platform = Application.platform == RuntimePlatform.IPhonePlayer ? "ios"
+                : Application.platform == RuntimePlatform.Android ? "android"
+                : "other";
+
+            var payload = new IAPReportPayload
+            {
+                bundleId = Application.identifier,
+                productId = product.definition.id,
+                platform = platform,
+                transactionId = product.transactionID ?? "",
+                receipt = product.receipt ?? "",
+                deviceId = SystemInfo.deviceUniqueIdentifier,
+                appVersion = Application.version,
+            };
+
+            string json = JsonUtility.ToJson(payload);
+            byte[] body = Encoding.UTF8.GetBytes(json);
+
+            using (var request = new UnityWebRequest(REPORT_ENDPOINT, "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(body);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                request.timeout = 15;
+
+                yield return request.SendWebRequest();
+
+#if UNITY_2020_1_OR_NEWER
+                bool failed = request.result != UnityWebRequest.Result.Success;
+#else
+                bool failed = request.isNetworkError || request.isHttpError;
+#endif
+                if (failed)
+                    Debug.LogWarning($"[IAPManager] Báo doanh thu thất bại (không ảnh hưởng giao dịch): {request.error}");
+                else
+                    Debug.Log("[IAPManager] Đã báo doanh thu về Store Manager");
+            }
+        }
+
+        [Serializable]
+        private class IAPReportPayload
+        {
+            public string bundleId;
+            public string productId;
+            public string platform;
+            public string transactionId;
+            public string receipt;
+            public string deviceId;
+            public string appVersion;
         }
 
         public void OnPurchaseFailed(Product item, PurchaseFailureReason reason)
