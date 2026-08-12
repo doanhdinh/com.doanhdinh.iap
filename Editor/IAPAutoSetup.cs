@@ -197,14 +197,18 @@ namespace DoanhDinh.IAP.Editor
 
         private const string ShopUiSampleDisplayName = "Shop UI";
         private const string ShopUiPrefabFileName = "ShopUI_Canvas.prefab";
+        private const int ShopUiCanvasSortOrder = 1000;
 
         /// <summary>
         /// Ensures the package's "Shop UI" sample (ShopUI_Canvas prefab: Canvas + shop
         /// panel + buy buttons, with IAPManager already attached) is imported and placed
-        /// in the first Build Settings scene, wired to <paramref name="config"/>. Without
-        /// this there is no in-game way to actually call Purchase() - it visibly shows a
-        /// shop popup by default (root GameObjects in the prefab are active), same as the
-        /// sample is designed to be used ("drag onto scene and it works").
+        /// in the first Build Settings scene, wired to <paramref name="config"/>.
+        ///
+        /// The Canvas is forced to sortingOrder 1000 (renders on top of everything else)
+        /// and disabled by default - hidden until each game's own "Shop" button flips
+        /// canvas.enabled back on. Only the Canvas COMPONENT is disabled, never the
+        /// GameObject: IAPManager lives on a child under the same root, and disabling the
+        /// GameObject instead would stop it from ever initializing IAP at all.
         /// </summary>
         private static bool EnsureShopUiInScene(IapConfigInfo config)
         {
@@ -217,71 +221,103 @@ namespace DoanhDinh.IAP.Editor
 
             string scenePath = buildScenes[0].path;
             var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            bool changed = false;
 
-            // Already placed in this scene? Re-link config if needed, otherwise no-op.
-            var existingRoot = scene.GetRootGameObjects()
-                .FirstOrDefault(go => go.name == "ShopUI_Canvas");
-            if (existingRoot != null)
+            // Already placed in this scene? Re-link config / fix canvas defaults if needed.
+            var root = scene.GetRootGameObjects().FirstOrDefault(go => go.name == "ShopUI_Canvas");
+            if (root != null)
             {
-                var existingManager = existingRoot.GetComponentInChildren<IAPManager>(true);
+                var existingManager = root.GetComponentInChildren<IAPManager>(true);
                 if (existingManager == null)
                 {
                     Debug.LogWarning("[IAPAutoSetup] Found a ShopUI_Canvas in scene but no IAPManager under it - leaving as is.");
                     return false;
                 }
-                return RelinkConfigIfNeeded(existingManager, config, scene, scenePath);
-            }
-
-            string prefabPath = FindShopUiPrefabPath();
-            if (string.IsNullOrEmpty(prefabPath))
-            {
-                Debug.LogWarning("[IAPAutoSetup] Could not locate/import the 'Shop UI' sample "
-                    + "(ShopUI_Canvas.prefab). No purchase UI was added to the scene.");
-                return false;
-            }
-
-            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
-            if (prefab == null)
-            {
-                Debug.LogWarning($"[IAPAutoSetup] Prefab failed to load at: {prefabPath}");
-                return false;
-            }
-
-            var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
-            var manager = instance.GetComponentInChildren<IAPManager>(true);
-            if (manager == null)
-            {
-                Debug.LogWarning("[IAPAutoSetup] Instantiated ShopUI_Canvas has no IAPManager component under it.");
+                changed |= RelinkConfigIfNeeded(existingManager, config, scenePath);
             }
             else
             {
-                var so = new SerializedObject(manager);
-                so.FindProperty("config").objectReferenceValue = config;
-                so.ApplyModifiedProperties();
+                string prefabPath = FindShopUiPrefabPath();
+                if (string.IsNullOrEmpty(prefabPath))
+                {
+                    Debug.LogWarning("[IAPAutoSetup] Could not locate/import the 'Shop UI' sample "
+                        + "(ShopUI_Canvas.prefab). No purchase UI was added to the scene.");
+                    return false;
+                }
+
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+                if (prefab == null)
+                {
+                    Debug.LogWarning($"[IAPAutoSetup] Prefab failed to load at: {prefabPath}");
+                    return false;
+                }
+
+                root = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
+                var manager = root.GetComponentInChildren<IAPManager>(true);
+                if (manager == null)
+                {
+                    Debug.LogWarning("[IAPAutoSetup] Instantiated ShopUI_Canvas has no IAPManager component under it.");
+                }
+                else
+                {
+                    var so = new SerializedObject(manager);
+                    so.FindProperty("config").objectReferenceValue = config;
+                    so.ApplyModifiedProperties();
+                }
+
+                Debug.Log($"[IAPAutoSetup] Instantiated Shop UI ({prefabPath}) into scene: {scenePath}");
+                changed = true;
             }
 
-            EditorSceneManager.MarkSceneDirty(scene);
-            EditorSceneManager.SaveScene(scene);
-            Debug.Log($"[IAPAutoSetup] Instantiated Shop UI ({prefabPath}) into scene: {scenePath}");
-            return true;
+            changed |= ApplyCanvasDefaults(root, scenePath);
+
+            if (changed)
+            {
+                EditorSceneManager.MarkSceneDirty(scene);
+                EditorSceneManager.SaveScene(scene);
+            }
+            return changed;
         }
 
-        private static bool RelinkConfigIfNeeded(IAPManager manager, IapConfigInfo config, UnityEngine.SceneManagement.Scene scene, string scenePath)
+        private static bool RelinkConfigIfNeeded(IAPManager manager, IapConfigInfo config, string scenePath)
         {
             var so = new SerializedObject(manager);
             var cfgProp = so.FindProperty("config");
             if (cfgProp.objectReferenceValue == config)
-            {
-                Debug.Log("[IAPAutoSetup] Shop UI already present in scene and correctly configured, skipping.");
                 return false;
-            }
 
             cfgProp.objectReferenceValue = config;
             so.ApplyModifiedProperties();
-            EditorSceneManager.MarkSceneDirty(scene);
-            EditorSceneManager.SaveScene(scene);
             Debug.Log($"[IAPAutoSetup] Re-linked existing Shop UI's config in scene: {scenePath}");
             return true;
+        }
+
+        private static bool ApplyCanvasDefaults(GameObject root, string scenePath)
+        {
+            var canvas = root.GetComponent<Canvas>();
+            if (canvas == null)
+            {
+                Debug.LogWarning("[IAPAutoSetup] ShopUI_Canvas root has no Canvas component - cannot apply sort order / hidden-by-default.");
+                return false;
+            }
+
+            bool changed = false;
+            if (canvas.sortingOrder != ShopUiCanvasSortOrder)
+            {
+                canvas.sortingOrder = ShopUiCanvasSortOrder;
+                changed = true;
+            }
+            if (canvas.enabled)
+            {
+                canvas.enabled = false;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                Debug.Log($"[IAPAutoSetup] Applied Shop UI canvas defaults (sortingOrder={ShopUiCanvasSortOrder}, hidden until shown by game code) in scene: {scenePath}");
+            }
+            return changed;
         }
 
         /// <summary>Imports the "Shop UI" sample if needed and returns the imported ShopUI_Canvas.prefab path.</summary>
