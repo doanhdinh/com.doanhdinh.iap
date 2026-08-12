@@ -1,7 +1,10 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using UnityEditor;
+using UnityEditor.PackageManager;
+using UnityEditor.PackageManager.UI;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
@@ -73,7 +76,7 @@ namespace DoanhDinh.IAP.Editor
 
                 result.configChanged = EnsureConfigAsset(bundleId, out var config);
                 result.catalogChanged = EnsureProductCatalog(bundleId);
-                result.managerChanged = EnsureManagerInScene(config);
+                result.managerChanged = EnsureShopUiInScene(config);
                 result.skus = BuildSkuList(bundleId);
                 result.success = true;
 
@@ -192,51 +195,137 @@ namespace DoanhDinh.IAP.Editor
 
         // ── Scene wiring ──────────────────────────────────────────────────────
 
-        private static bool EnsureManagerInScene(IapConfigInfo config)
+        private const string ShopUiSampleDisplayName = "Shop UI";
+        private const string ShopUiPrefabFileName = "ShopUI_Canvas.prefab";
+
+        /// <summary>
+        /// Ensures the package's "Shop UI" sample (ShopUI_Canvas prefab: Canvas + shop
+        /// panel + buy buttons, with IAPManager already attached) is imported and placed
+        /// in the first Build Settings scene, wired to <paramref name="config"/>. Without
+        /// this there is no in-game way to actually call Purchase() - it visibly shows a
+        /// shop popup by default (root GameObjects in the prefab are active), same as the
+        /// sample is designed to be used ("drag onto scene and it works").
+        /// </summary>
+        private static bool EnsureShopUiInScene(IapConfigInfo config)
         {
             var buildScenes = EditorBuildSettings.scenes;
             if (buildScenes == null || buildScenes.Length == 0)
             {
-                Debug.LogWarning("[IAPAutoSetup] No scenes in Build Settings, cannot place IAPManager. Skipping.");
+                Debug.LogWarning("[IAPAutoSetup] No scenes in Build Settings, cannot place Shop UI. Skipping.");
                 return false;
             }
 
             string scenePath = buildScenes[0].path;
             var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
 
-            // A lean scene GameObject with just the manager component - not the visual
-            // "Shop UI" sample prefab, so this never adds unexpected UI on top of a game's
-            // own screens. Games that want the sample shop UI can still import/place it
-            // manually; this only guarantees IAPManager.Instance.Purchase(...) works.
-            var existing = UnityEngine.Object.FindObjectOfType<IAPManager>();
-            if (existing != null)
+            // Already placed in this scene? Re-link config if needed, otherwise no-op.
+            var existingRoot = scene.GetRootGameObjects()
+                .FirstOrDefault(go => go.name == "ShopUI_Canvas");
+            if (existingRoot != null)
             {
-                var existingSo = new SerializedObject(existing);
-                var cfgProp = existingSo.FindProperty("config");
-                if (cfgProp.objectReferenceValue != config)
+                var existingManager = existingRoot.GetComponentInChildren<IAPManager>(true);
+                if (existingManager == null)
                 {
-                    cfgProp.objectReferenceValue = config;
-                    existingSo.ApplyModifiedProperties();
-                    EditorSceneManager.MarkSceneDirty(scene);
-                    EditorSceneManager.SaveScene(scene);
-                    Debug.Log($"[IAPAutoSetup] Re-linked existing IAPManager's config in scene: {scenePath}");
-                    return true;
+                    Debug.LogWarning("[IAPAutoSetup] Found a ShopUI_Canvas in scene but no IAPManager under it - leaving as is.");
+                    return false;
                 }
+                return RelinkConfigIfNeeded(existingManager, config, scene, scenePath);
+            }
 
-                Debug.Log("[IAPAutoSetup] IAPManager already present in scene and correctly configured, skipping.");
+            string prefabPath = FindShopUiPrefabPath();
+            if (string.IsNullOrEmpty(prefabPath))
+            {
+                Debug.LogWarning("[IAPAutoSetup] Could not locate/import the 'Shop UI' sample "
+                    + "(ShopUI_Canvas.prefab). No purchase UI was added to the scene.");
                 return false;
             }
 
-            var go = new GameObject("IAPManager (Auto-Setup)");
-            var manager = go.AddComponent<IAPManager>();
-            var so = new SerializedObject(manager);
-            so.FindProperty("config").objectReferenceValue = config;
-            so.ApplyModifiedProperties();
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (prefab == null)
+            {
+                Debug.LogWarning($"[IAPAutoSetup] Prefab failed to load at: {prefabPath}");
+                return false;
+            }
+
+            var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
+            var manager = instance.GetComponentInChildren<IAPManager>(true);
+            if (manager == null)
+            {
+                Debug.LogWarning("[IAPAutoSetup] Instantiated ShopUI_Canvas has no IAPManager component under it.");
+            }
+            else
+            {
+                var so = new SerializedObject(manager);
+                so.FindProperty("config").objectReferenceValue = config;
+                so.ApplyModifiedProperties();
+            }
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
-            Debug.Log($"[IAPAutoSetup] Added IAPManager to scene: {scenePath}");
+            Debug.Log($"[IAPAutoSetup] Instantiated Shop UI ({prefabPath}) into scene: {scenePath}");
             return true;
+        }
+
+        private static bool RelinkConfigIfNeeded(IAPManager manager, IapConfigInfo config, UnityEngine.SceneManagement.Scene scene, string scenePath)
+        {
+            var so = new SerializedObject(manager);
+            var cfgProp = so.FindProperty("config");
+            if (cfgProp.objectReferenceValue == config)
+            {
+                Debug.Log("[IAPAutoSetup] Shop UI already present in scene and correctly configured, skipping.");
+                return false;
+            }
+
+            cfgProp.objectReferenceValue = config;
+            so.ApplyModifiedProperties();
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+            Debug.Log($"[IAPAutoSetup] Re-linked existing Shop UI's config in scene: {scenePath}");
+            return true;
+        }
+
+        /// <summary>Imports the "Shop UI" sample if needed and returns the imported ShopUI_Canvas.prefab path.</summary>
+        private static string FindShopUiPrefabPath()
+        {
+            var packageInfo = PackageInfo.FindForAssembly(typeof(IAPManager).Assembly);
+            string packageName = packageInfo != null ? packageInfo.name : "com.doanhdinh.iap";
+            string packageVersion = packageInfo != null ? packageInfo.version : null;
+
+            var samples = Sample.FindByPackage(packageName, packageVersion).ToList();
+            if (samples.Count == 0)
+            {
+                Debug.LogWarning($"[IAPAutoSetup] No samples found for package {packageName}@{packageVersion}.");
+                return null;
+            }
+
+            var shopSample = samples.FirstOrDefault(s => s.displayName == ShopUiSampleDisplayName);
+            if (shopSample.displayName != ShopUiSampleDisplayName)
+            {
+                Debug.LogWarning($"[IAPAutoSetup] Sample '{ShopUiSampleDisplayName}' not found in package {packageName}.");
+                return null;
+            }
+
+            if (!shopSample.isImported)
+            {
+                if (!shopSample.Import(ImportOptions.OverridePreviousImports))
+                {
+                    Debug.LogWarning("[IAPAutoSetup] Failed to import the 'Shop UI' sample.");
+                    return null;
+                }
+                AssetDatabase.Refresh();
+            }
+
+            string importPath = shopSample.importPath;
+            if (string.IsNullOrEmpty(importPath))
+            {
+                // Fallback: reconstruct the standard UPM sample import path.
+                string displayName = packageInfo != null ? packageInfo.displayName : "DoanhDinh IAP Manager";
+                string version = packageInfo != null ? packageInfo.version : "1.0.0";
+                importPath = Path.Combine("Assets", "Samples", displayName, version, ShopUiSampleDisplayName);
+            }
+
+            string prefabPath = Path.Combine(importPath, ShopUiPrefabFileName).Replace("\\", "/");
+            return File.Exists(prefabPath) ? prefabPath : null;
         }
 
         // ── SKU export (for manual Play Console / App Store Connect product creation) ─

@@ -14,8 +14,6 @@ namespace DoanhDinh.IAP.Editor
     {
         // ── Constants ─────────────────────────────────────────────────────────
 
-        private const string DefaultCompany = "com.doanhdinh";
-
         private static string[] Suffixes => IAPProductTiers.Suffixes;
         private static float[] Prices => IAPProductTiers.Prices;
         private static string[] Titles => IAPProductTiers.Titles;
@@ -32,10 +30,10 @@ namespace DoanhDinh.IAP.Editor
 
         private void OnEnable()
         {
-            string productName = PlayerSettings.productName
-                .ToLower()
-                .Replace(" ", "");
-            _bundlePrefix = $"{DefaultCompany}.{productName}";
+            // Default to this project's REAL configured bundle ID (Player Settings ›
+            // Other Settings › Package Name), not a hardcoded company guess - every game
+            // has its own company/bundle namespace, not just "com.doanhdinh.*".
+            _bundlePrefix = PlayerSettings.applicationIdentifier;
             _packageName  = PlayerSettings.applicationIdentifier;
         }
 
