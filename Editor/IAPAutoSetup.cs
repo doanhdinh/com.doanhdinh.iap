@@ -287,17 +287,22 @@ namespace DoanhDinh.IAP.Editor
         /// <summary>Imports the "Shop UI" sample if needed and returns the imported ShopUI_Canvas.prefab path.</summary>
         private static string FindShopUiPrefabPath()
         {
-            var packageInfo = PackageInfo.FindForAssembly(typeof(IAPManager).Assembly);
+            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(IAPManager).Assembly);
             string packageName = packageInfo != null ? packageInfo.name : "com.doanhdinh.iap";
             string packageVersion = packageInfo != null ? packageInfo.version : null;
+            string displayName = packageInfo != null ? packageInfo.displayName : "DoanhDinh IAP Manager";
+            string version = packageInfo != null ? packageInfo.version : "1.0.0";
+
+            // The standard UPM sample import destination. shopSample.importPath is not
+            // reliably populated right after Import() in batch mode, so this fixed
+            // convention is what's actually used to locate the file below.
+            string importPath = Path.Combine("Assets", "Samples", displayName, version, ShopUiSampleDisplayName);
+            string prefabPath = Path.Combine(importPath, ShopUiPrefabFileName).Replace("\\", "/");
+
+            if (File.Exists(prefabPath))
+                return prefabPath;
 
             var samples = Sample.FindByPackage(packageName, packageVersion).ToList();
-            if (samples.Count == 0)
-            {
-                Debug.LogWarning($"[IAPAutoSetup] No samples found for package {packageName}@{packageVersion}.");
-                return null;
-            }
-
             var shopSample = samples.FirstOrDefault(s => s.displayName == ShopUiSampleDisplayName);
             if (shopSample.displayName != ShopUiSampleDisplayName)
             {
@@ -305,26 +310,20 @@ namespace DoanhDinh.IAP.Editor
                 return null;
             }
 
-            if (!shopSample.isImported)
+            if (!shopSample.isImported && !shopSample.Import(Sample.ImportOptions.OverridePreviousImports))
             {
-                if (!shopSample.Import(ImportOptions.OverridePreviousImports))
-                {
-                    Debug.LogWarning("[IAPAutoSetup] Failed to import the 'Shop UI' sample.");
-                    return null;
-                }
+                Debug.LogWarning("[IAPAutoSetup] Failed to import the 'Shop UI' sample.");
+                return null;
+            }
+
+            // Import() can return before the file copy is fully flushed to disk in batch
+            // mode - poll briefly instead of failing on that race.
+            for (int i = 0; i < 20 && !File.Exists(prefabPath); i++)
+            {
+                System.Threading.Thread.Sleep(250);
                 AssetDatabase.Refresh();
             }
 
-            string importPath = shopSample.importPath;
-            if (string.IsNullOrEmpty(importPath))
-            {
-                // Fallback: reconstruct the standard UPM sample import path.
-                string displayName = packageInfo != null ? packageInfo.displayName : "DoanhDinh IAP Manager";
-                string version = packageInfo != null ? packageInfo.version : "1.0.0";
-                importPath = Path.Combine("Assets", "Samples", displayName, version, ShopUiSampleDisplayName);
-            }
-
-            string prefabPath = Path.Combine(importPath, ShopUiPrefabFileName).Replace("\\", "/");
             return File.Exists(prefabPath) ? prefabPath : null;
         }
 
