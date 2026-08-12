@@ -297,28 +297,29 @@ namespace DoanhDinh.IAP.Editor
 
         private static bool ApplyCanvasDefaults(GameObject root, string scenePath)
         {
-            var canvas = root.GetComponent<Canvas>();
-            if (canvas == null)
-            {
-                Debug.LogWarning("[IAPAutoSetup] ShopUI_Canvas root has no Canvas component - cannot apply sort order / hidden-by-default.");
-                return false;
-            }
-
             bool changed = false;
-            if (canvas.sortingOrder != ShopUiCanvasSortOrder)
+
+            var canvas = root.GetComponent<Canvas>();
+            if (canvas != null && canvas.sortingOrder != ShopUiCanvasSortOrder)
             {
                 canvas.sortingOrder = ShopUiCanvasSortOrder;
                 changed = true;
             }
-            if (canvas.enabled)
+
+            if (root.activeSelf)
             {
-                canvas.enabled = false;
+                // Disable the whole GameObject, not just the Canvas component - hidden
+                // until each game's own "Shop" button calls SetActive(true). Awake/Start
+                // on IAPManager (a child under this same root) still fire the first time
+                // the object is ever activated, whenever that ends up being, so IAP just
+                // initializes lazily on first shop open instead of eagerly at scene load.
+                root.SetActive(false);
                 changed = true;
             }
 
             if (changed)
             {
-                Debug.Log($"[IAPAutoSetup] Applied Shop UI canvas defaults (sortingOrder={ShopUiCanvasSortOrder}, hidden until shown by game code) in scene: {scenePath}");
+                Debug.Log($"[IAPAutoSetup] Applied Shop UI defaults (sortingOrder={ShopUiCanvasSortOrder}, disabled until shown by game code) in scene: {scenePath}");
             }
             return changed;
         }
