@@ -11,7 +11,8 @@ namespace DoanhDinh.IAP.Editor
     /// Headless, CI-callable IAP setup. Generates the 9 SKUs for a bundleId, creates/updates
     /// the IapConfigInfo asset + Unity IAP product catalog, makes sure an IAPManager exists in
     /// the first Build Settings scene wired to that config, and (optionally) exports a plain
-    /// text SKU list for manual store product creation.
+    /// text SKU list + a machine-readable status JSON (for the CI step to report back to the
+    /// Store Manager's /iap-setup-status endpoint).
     ///
     /// Idempotent — every step compares against current content and skips writes/scene saves
     /// when nothing changed, so this is safe to run on every single build.
@@ -19,14 +20,28 @@ namespace DoanhDinh.IAP.Editor
     /// CI invocation:
     ///   Unity.exe -batchmode -quit -projectPath <path> \
     ///     -executeMethod DoanhDinh.IAP.Editor.IAPAutoSetup.Run \
-    ///     -iapBundleId com.doanhdinh.foo -iapOutputTxt D:\BuildOutput\Foo\Foo_iap_skus.txt
+    ///     -iapBundleId com.doanhdinh.foo \
+    ///     -iapOutputTxt D:\BuildOutput\Foo\Foo_iap_skus.txt \
+    ///     -iapStatusJson D:\BuildOutput\Foo\iap-setup-status.json
     ///
     /// Manual (in-editor) invocation: DoanhDinh → IAP → Run Auto-Setup Now
-    /// (uses PlayerSettings.applicationIdentifier as the bundleId, no txt export).
+    /// (uses PlayerSettings.applicationIdentifier as the bundleId, no txt/json export).
     /// </summary>
     public static class IAPAutoSetup
     {
         private const string ConfigAssetPath = "Assets/Resources/DoanhDinhIAPConfig.asset";
+
+        [Serializable]
+        private class SetupResult
+        {
+            public string bundleId;
+            public bool success;
+            public bool configChanged;
+            public bool catalogChanged;
+            public bool managerChanged;
+            public string[] skus;
+            public string error;
+        }
 
         [MenuItem("DoanhDinh/IAP/Run Auto-Setup Now")]
         public static void RunFromMenu() => Run();
@@ -35,30 +50,48 @@ namespace DoanhDinh.IAP.Editor
         {
             string bundleId = GetArg("-iapBundleId");
             string outputTxt = GetArg("-iapOutputTxt");
+            string statusJsonPath = GetArg("-iapStatusJson");
 
             if (string.IsNullOrEmpty(bundleId))
                 bundleId = PlayerSettings.applicationIdentifier;
             bundleId = (bundleId ?? "").Trim().ToLowerInvariant();
 
+            var result = new SetupResult { bundleId = bundleId, skus = new string[0] };
+
             if (string.IsNullOrEmpty(bundleId))
             {
-                Debug.LogError("[IAPAutoSetup] No bundleId available (-iapBundleId not passed and " +
-                    "PlayerSettings.applicationIdentifier is empty). Aborting.");
+                result.error = "No bundleId available (-iapBundleId not passed and " +
+                    "PlayerSettings.applicationIdentifier is empty).";
+                Debug.LogError($"[IAPAutoSetup] {result.error}");
+                WriteStatusJson(statusJsonPath, result);
                 return;
             }
 
-            Debug.Log($"[IAPAutoSetup] Setting up IAP for bundleId: {bundleId}");
+            try
+            {
+                Debug.Log($"[IAPAutoSetup] Setting up IAP for bundleId: {bundleId}");
 
-            var config = EnsureConfigAsset(bundleId);
-            EnsureProductCatalog(bundleId);
-            EnsureManagerInScene(config);
+                result.configChanged = EnsureConfigAsset(bundleId, out var config);
+                result.catalogChanged = EnsureProductCatalog(bundleId);
+                result.managerChanged = EnsureManagerInScene(config);
+                result.skus = BuildSkuList(bundleId);
+                result.success = true;
 
-            if (!string.IsNullOrEmpty(outputTxt))
-                ExportSkuTxt(bundleId, outputTxt);
+                if (!string.IsNullOrEmpty(outputTxt))
+                    ExportSkuTxt(bundleId, outputTxt);
 
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-            Debug.Log("[IAPAutoSetup] Done.");
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+                Debug.Log("[IAPAutoSetup] Done.");
+            }
+            catch (Exception e)
+            {
+                result.success = false;
+                result.error = e.Message;
+                Debug.LogError($"[IAPAutoSetup] Failed: {e}");
+            }
+
+            WriteStatusJson(statusJsonPath, result);
         }
 
         private static string GetArg(string name)
@@ -69,13 +102,37 @@ namespace DoanhDinh.IAP.Editor
             return null;
         }
 
+        private static string[] BuildSkuList(string bundleId)
+        {
+            var suffixes = IAPProductTiers.Suffixes;
+            var list = new string[suffixes.Length];
+            for (int i = 0; i < suffixes.Length; i++)
+                list[i] = $"{bundleId}.{suffixes[i]}";
+            return list;
+        }
+
+        private static void WriteStatusJson(string path, SetupResult result)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.WriteAllText(path, JsonUtility.ToJson(result));
+                Debug.Log($"[IAPAutoSetup] Status JSON written: {path}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[IAPAutoSetup] Failed to write status json: {e.Message}");
+            }
+        }
+
         // ── Config asset ──────────────────────────────────────────────────────
 
-        private static IapConfigInfo EnsureConfigAsset(string bundleId)
+        private static bool EnsureConfigAsset(string bundleId, out IapConfigInfo config)
         {
             Directory.CreateDirectory(Path.Combine(Application.dataPath, "Resources"));
 
-            var config = AssetDatabase.LoadAssetAtPath<IapConfigInfo>(ConfigAssetPath);
+            config = AssetDatabase.LoadAssetAtPath<IapConfigInfo>(ConfigAssetPath);
             bool isNew = config == null;
             if (isNew)
             {
@@ -111,12 +168,12 @@ namespace DoanhDinh.IAP.Editor
                 Debug.Log("[IAPAutoSetup] Config asset already up to date, skipping.");
             }
 
-            return config;
+            return changed;
         }
 
         // ── Product catalog (read by Unity IAP at runtime) ───────────────────
 
-        private static void EnsureProductCatalog(string bundleId)
+        private static bool EnsureProductCatalog(string bundleId)
         {
             string catalogPath = Path.Combine(Application.dataPath, "Resources", "IAPProductCatalog.json");
             string expected = IAPProductTiers.BuildCatalogJson(bundleId);
@@ -124,23 +181,24 @@ namespace DoanhDinh.IAP.Editor
             if (File.Exists(catalogPath) && File.ReadAllText(catalogPath) == expected)
             {
                 Debug.Log("[IAPAutoSetup] Product catalog already up to date, skipping.");
-                return;
+                return false;
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(catalogPath));
             File.WriteAllText(catalogPath, expected);
             Debug.Log("[IAPAutoSetup] Product catalog written: Assets/Resources/IAPProductCatalog.json");
+            return true;
         }
 
         // ── Scene wiring ──────────────────────────────────────────────────────
 
-        private static void EnsureManagerInScene(IapConfigInfo config)
+        private static bool EnsureManagerInScene(IapConfigInfo config)
         {
             var buildScenes = EditorBuildSettings.scenes;
             if (buildScenes == null || buildScenes.Length == 0)
             {
                 Debug.LogWarning("[IAPAutoSetup] No scenes in Build Settings, cannot place IAPManager. Skipping.");
-                return;
+                return false;
             }
 
             string scenePath = buildScenes[0].path;
@@ -162,12 +220,11 @@ namespace DoanhDinh.IAP.Editor
                     EditorSceneManager.MarkSceneDirty(scene);
                     EditorSceneManager.SaveScene(scene);
                     Debug.Log($"[IAPAutoSetup] Re-linked existing IAPManager's config in scene: {scenePath}");
+                    return true;
                 }
-                else
-                {
-                    Debug.Log("[IAPAutoSetup] IAPManager already present in scene and correctly configured, skipping.");
-                }
-                return;
+
+                Debug.Log("[IAPAutoSetup] IAPManager already present in scene and correctly configured, skipping.");
+                return false;
             }
 
             var go = new GameObject("IAPManager (Auto-Setup)");
@@ -179,6 +236,7 @@ namespace DoanhDinh.IAP.Editor
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
             Debug.Log($"[IAPAutoSetup] Added IAPManager to scene: {scenePath}");
+            return true;
         }
 
         // ── SKU export (for manual Play Console / App Store Connect product creation) ─
