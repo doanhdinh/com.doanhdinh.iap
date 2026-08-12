@@ -212,14 +212,17 @@ namespace DoanhDinh.IAP.Editor
         /// </summary>
         private static bool EnsureShopUiInScene(IapConfigInfo config)
         {
-            var buildScenes = EditorBuildSettings.scenes;
-            if (buildScenes == null || buildScenes.Length == 0)
+            // The first ENABLED scene, not just array index 0 - Build Settings entries can
+            // be individually unchecked (kept for reference but excluded from the actual
+            // build), and the checked-off first one is what Unity actually boots into.
+            var firstEnabledScene = EditorBuildSettings.scenes.FirstOrDefault(s => s.enabled);
+            if (firstEnabledScene == null)
             {
-                Debug.LogWarning("[IAPAutoSetup] No scenes in Build Settings, cannot place Shop UI. Skipping.");
+                Debug.LogWarning("[IAPAutoSetup] No enabled scenes in Build Settings, cannot place Shop UI. Skipping.");
                 return false;
             }
 
-            string scenePath = buildScenes[0].path;
+            string scenePath = firstEnabledScene.path;
             var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
             bool changed = false;
 
